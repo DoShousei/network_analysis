@@ -4,7 +4,7 @@ from datetime import *
 
 def select_links():
     """
-    extract users items who posted tweets from user_links
+    extract users items who both posted tweets from user_links
     :return: file csv
     """
     reader = pd.read_csv('deodorant_link.csv', header=None, names=['user_id', 'following_id'], iterator=True)
@@ -21,7 +21,7 @@ def select_links():
     df = pd.concat(chunks, ignore_index=True)
     # a = df[df.duplicated()]
     a = pd.concat([df.drop_duplicates(), df.drop_duplicates(keep=False)]).drop_duplicates(keep=False)
-    a.to_csv('deodorant_link_fin.csv', mode='a+', header=None, index=False)
+    a.to_csv('deodorant_link_posted.csv', mode='a+', header=None, index=False)
     print('completed')
 
 
@@ -80,22 +80,22 @@ def determine_source(link_df, time_df):
 
     :param link_df: remained link by remain_link func
     :param time_df: data frame, user_id, post_time
-    :return: list of index which can be remained in link_df
+    :return: dataframe, link_df_select
     """
-    index_list = []
+    link_df_select = pd.DataFrame(columns=['user_id', 'following_id'])
     u_id_duplicated = link_df[link_df.user_id.duplicated(False)]
     user_duplicated = u_id_duplicated['user_id'].tolist()
     user_duplicated = set(user_duplicated)
     for user in user_duplicated:
         user_index = link_df[link_df.user_id == user].index.tolist()
-        fol_id = link_df.iloc[user_index, [1]]
-        fol_time_index = time_df[time_df.user_id == fol_id].index.tolist()
-        fol_time = time_df.iloc[fol_time_index, [1]]
-        fol_max_time = max(fol_time['post_time'])
-        fol_max_id = time_df[time_df.post_time == fol_max_time]
-        fol_index = link_df[link_df.following_id == fol_max_id].index.tolist()
-        index_list.append(fol_index)
-    return index_list
+        fol_id = link_df.iloc[user_index, [1]]  # list : fol_id
+        fol_id_list = fol_id['following_id'].tolist()
+        fol_time_df = time_df[time_df['user_id'].isin(fol_id_list)]
+        fol_max_time = max(fol_time_df['post_time'])
+        fol_max_id = time_df[time_df.post_time == fol_max_time].user_id.tolist()
+        user_fol = link_df[(link_df.user_id == user) & (link_df.following_id.isin(fol_max_id))]
+        link_df_select = link_df_select.append(user_fol, ignore_index=True)
+    return link_df_select
 
 
 if __name__ == '__main__':
@@ -104,7 +104,7 @@ if __name__ == '__main__':
     dic = dic_id_time()
     df_time = pd.DataFrame(dic)
     df_time['user_id'].astype(int)
-    reader = pd.read_csv('deodorant_link_fin.csv', header=None, names=['user_id', 'following_id'], iterator=True)
+    reader = pd.read_csv('deodorant_link_posted.csv', header=None, names=['user_id', 'following_id'], iterator=True)
     loop = True
     chunkSize = 500000
     chunks = []
@@ -122,26 +122,18 @@ if __name__ == '__main__':
         u_id = getattr(row, 'user_id')
         f_id = getattr(row, 'following_id')
         u_index = df_time[df_time.user_id == u_id].index.tolist()
-        if u_index:
-            u_time = df_time.iloc[u_index, [1]]
-        else:
-            skip_count += 1
-            continue
-
+        u_time = df_time.iloc[u_index, [1]]
         f_index = df_time[df_time.user_id == f_id].index.tolist()
-        if f_index:
-            f_time = df_time.iloc[f_index, [1]]
-        else:
-            skip_count += 1
-            continue
+        f_time = df_time.iloc[f_index, [1]]
         re = remain_link(u_time, f_time)
         if re is True:
             df_link_f1 = df_link_f1.append([{'user_id': u_id, 'following_id': f_id}], ignore_index=True)
         else:
             continue
-    print(skip_count)
     # print(df_link_f1)
-    # remain_index_list = determine_source(df_link_f1, df_time)
-    # print(remain_index_list)
+    remain_df_1 = df_link_f1.drop_duplicates(['user_id'], keep=False)
+    remain_df_2 = determine_source(df_link_f1, df_time)
+    df_final = remain_df_1.append(remain_df_2, ignore_index=True)
+    df_final.to_csv('deodorant_link_network.csv', header=False, index=False)
 
 
